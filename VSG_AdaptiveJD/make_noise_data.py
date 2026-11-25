@@ -15,8 +15,6 @@ TAU_N = 4e-3
 N = int(round(TSIM / DT))
 rng = np.random.default_rng(SEED)
 raw = rng.standard_normal(N + 2)
-
-# 与 vsg_sim5.simulate() 相同的 AR(1) 整形，用于自检
 a = np.exp(-DT / TAU_N)
 b = np.sqrt(1 - a * a)
 nz = np.empty(N + 2)

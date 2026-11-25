@@ -1,0 +1,144 @@
+function init_vsg_params(caseName, scheme)
+%
+%   init_vsg_params                      
+%   init_vsg_params('case2', 2)          
+%
+%   
+%   全部变量写入 base 工作区，供 VSG_AdaptiveJD.slx 的模块参数引用。
+%
+%   工况定义（仿真时长 4 s）
+%     case1  电网频率跌落：49.8 Hz（t ∈ [1,2) s），功率指令 25 kW 恒定
+%     case2  功率指令阶跃：25 → 30 → 20 kW（t = 1 s、2 s）
+%     case3  同 case2，量测通道叠加带限白噪声 σω = 0.2 rad/s
+%
+% scheme = 1 Fixed / 2 Exponential / 3 antitangent / 4 segmentation / 5 MSCA
+
+if nargin < 1 || isempty(caseName), caseName = 'case1'; end
+if nargin < 2 || isempty(scheme),   scheme   = 5;       end
+caseName = lower(char(caseName));
+
+S = struct();
+
+% ------------------------------------------------------------------
+% 1. 主电路与标度
+% ------------------------------------------------------------------
+S.Sn = 50e3;            % 额定容量  W
+S.Ud = 800.0;           % 直流母线  V
+S.Ug = 380.0;           % 电网线电压 V
+S.Up = 311.0;           % 相电压峰值 V
+S.f0 = 50.0;            % 额定频率  Hz
+S.Lf = 3e-3;            % 滤波电感  H
+S.Cf = 15e-6;           % 滤波电容  F
+S.Lg = 2e-3;            % 并网电感  H
+S.E  = 311.0;           % 内电势 V
+
+S.w0 = 2*pi*S.f0;                          % 额定角频率 rad/s
+S.X  = S.w0*(S.Lf + S.Lg);                 % 总电抗   Ω
+S.Kd = 3*S.E*S.Up/S.X;                     % 同步功率系数 W/rad
+S.Kw = S.Sn/(0.03*S.w0);                   % 调频（下垂）系数 W/(rad/s)
+
+% ------------------------------------------------------------------
+% 2. 指标层设计量（式 (5)-(7) 的逆映射基准）
+% ------------------------------------------------------------------
+S.lam  = 10.0;              % 最小衰减率下限 λmin  s^-1
+S.z0   = 0.707;             % 目标阻尼比 ζ0
+S.zmax = 1.0;               % 阻尼比上限 ζmax
+S.wn0  = S.lam/S.z0;        % 参考自然振荡频率 rad/s
+S.J0   = S.Kd/S.wn0^2;      % 参考惯量 kg·m^2
+S.DS0  = 2*S.z0*sqrt(S.Kd*S.J0);   % 参考总阻尼系数
+S.D0   = S.DS0 - S.Kw;             % 对应 D = D_Σ - K_ω
+S.Jmin = 0.30*S.J0;  S.Jmax = 2.00*S.J0;
+S.Dmin = 0.30*S.DS0; S.Dmax = 2.20*S.DS0;
+S.muJ  = 1.2e4;             % 惯量变化率限幅 W·s^2/(rad·s)
+
+% ------------------------------------------------------------------
+% 3. 本文调度规律参数（式 (12)-(15)）
+% ------------------------------------------------------------------
+S.nu    = 0.15;             % 偏差段频率下降系数  ν
+S.nb    = 0.55;             % 恢复段频率回升系数  β
+S.dzr   = 0.50;             % 恢复段阻尼比削减量 Δζr
+S.dzd   = 0.00;             % 偏差段阻尼比抬升量 Δζd（消融用，正常取 0）
+S.tau   = 0.02;             % 量测一阶低通时间常数 s
+S.db    = 0.02;             % 软化死区半径 δ
+S.kpsi  = 14.0;             % 判决函数陡度 kψ
+S.txi   = 0.04;             % 判决量附加惯性时间常数 τξ
+S.lam_floor = 1;            % =0 时取消 λmin 下限（消融实验用）
+
+% ------------------------------------------------------------------
+% 4. 仿真环境
+% ------------------------------------------------------------------
+S.Ts   = 2e-4;              % 定步长 2e-4 s（5 kHz）
+S.Tsim = 4.0;
+S.scheme = scheme;
+
+S.delta0 = asin(25e3/S.Kd); % 初始功角（P_ref(0) = 25 kW）
+S.Pdn = 25e3 + S.Kw*(S.w0 - 49.8/50*S.w0);   % 一次调频稳态功率
+
+% ------------------------------------------------------------------
+% 5. 工况数据（激励与标定常数）
+% ------------------------------------------------------------------
+t = (0:S.Ts:S.Tsim)';       % 定步长采样时刻
+switch caseName
+    case 'case1'
+        wg = ones(size(t)); wg(t >= 1.0 & t < 2.0) = 49.8/50;
+        pref = 25e3*ones(size(t));
+        S.qref = 24.878325;  S.dfref = 2.846899;
+        S.dwref = 1.390814;  S.dref  = 17.887595;
+        S.sigma_n = 0.0;
+    case 'case2'
+        wg = ones(size(t));
+        pref = 25e3*ones(size(t)); pref(t >= 1.0) = 30e3; pref(t >= 2.0) = 20e3;
+        S.qref = 3.773712;   S.dfref = 1.715676;
+        S.dwref = 0.350069;  S.dref  = 10.779908;
+        S.sigma_n = 0.0;
+    case 'case3'
+        wg = ones(size(t));
+        pref = 25e3*ones(size(t)); pref(t >= 1.0) = 30e3; pref(t >= 2.0) = 20e3;
+        S.qref = 3.773712;   S.dfref = 1.715676;
+        S.dwref = 0.350069;  S.dref  = 10.779908;
+        S.sigma_n = 0.2;     % 量测噪声标准差 rad/s
+    otherwise
+        error('未知工况：%s（应为 case1 / case2 / case3）', caseName);
+end
+
+S.wg_ts   = timeseries(wg*S.w0, t);
+S.pref_ts = timeseries(pref,   t);
+S.caseName = caseName;   
+
+% 噪声整形滤波器：y[k] = a·y[k-1] + b·n[k]，τn = 4 ms
+S.tau_n = 4e-3;
+S.a_n   = exp(-S.Ts/S.tau_n);
+S.b_n   = sqrt(1 - S.a_n^2);
+
+% ------------------------------------------------------------------
+% 5b. 量测噪声源（工况 3）
+%     为与论文参考实现逐点一致，噪声驱动序列取自 noise_raw.mat
+% ------------------------------------------------------------------
+here = fileparts(mfilename('fullpath'));
+noiseFile = fullfile(here, 'noise_raw.mat');
+if exist(noiseFile, 'file')
+    nd = load(noiseFile, 'noise_raw', 'noise_shaped');
+    S.noise_raw = nd.noise_raw;
+    S.noise_shaped = nd.noise_shaped;
+    S.noise_src = 'file';
+else
+    warning('init_vsg_params:noiseFile', '未找到 noise_raw.mat，量测噪声改用本机 randn 生成');
+    S.noise_raw = [t, randn(numel(t), 1)];
+    S.noise_shaped = [t, zeros(numel(t),1)];
+    S.noise_src = 'randn';
+end
+
+
+names = fieldnames(S);
+for k = 1:numel(names)
+    assignin('base', names{k}, S.(names{k}));
+end
+
+% 回写工况/方案：模型 InitFcn 读的是 VSG_CASE / VSG_SCHEME，
+assignin('base', 'VSG_CASE',   S.caseName);
+assignin('base', 'VSG_SCHEME', S.scheme);
+
+fprintf(['[init_vsg_params] %s | scheme = %d | qref = %.4f | ' ...
+         'J0 = %.4f | D_Sigma0 = %.2f | sigma_n = %.2f | noise = %s\n'], ...
+        S.caseName, S.scheme, S.qref, S.J0, S.DS0, S.sigma_n, S.noise_src);
+end

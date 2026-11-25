@@ -1,16 +1,4 @@
-"""导出论文参考实现所用的高斯白噪声序列，供 Simulink 模型复用。
 
-论文（vsg_sim5.py）中工况 3 的量测噪声为
-    raw = numpy.random.default_rng(7).standard_normal(N + 2)
-    nz[k] = a·nz[k-1] + sqrt(1 - a^2)·raw[k],  a = exp(-Ts/4ms)
-MATLAB 的随机数发生器无法复现 PCG64 的这条流，因此把 raw 序列存盘，
-模型侧用 From Workspace 读入、AR(1) 整形仍在 Simulink 内完成。
-
-输出：noise_raw.mat
-    noise_raw      (N+2)×2  raw 序列（第一列时间，第二列驱动值）
-    noise_shaped   (N+2)×2  参考实现整形后的 nz 序列，仅用于自检
-    noise_seed / noise_tau   生成参数
-"""
 
 import os
 
